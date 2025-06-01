@@ -1,0 +1,18 @@
+Source state
+--------------------
+     RYB>R          
+RGY>W          RBW>Y
+          OGW>W     
+     OBY>O          
+OWB>O          OYG>O
+          RWG>G     
+--------------------
+Target state
+--------------------
+     RYB>R          
+RBW>R          RGY>R
+          RWG>R     
+     OBY>O          
+OWB>O          OYG>O
+          OGW>O     
+--------------------

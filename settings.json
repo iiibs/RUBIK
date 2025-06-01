@@ -1,0 +1,24 @@
+{
+ "action": "info",
+ "detailed": false,
+ "puzzle_id": 3,
+ "puzzles": [
+  {
+   "id": 0,
+   "name": "3 elements with 2 cycle-of-2 permutations"
+  },
+  {
+   "id": 1,
+   "name": "4 elements with 2 cycle-of-3 permutations"
+  },
+  {
+   "id": 2,
+   "name": "5 elements with 2 x cycle-of-3 permutations"
+  },
+  {
+   "id": 3,
+   "name": "Pocket Cube 2 x 2 x 2"
+  }
+ ],
+ "task_id": 0
+}

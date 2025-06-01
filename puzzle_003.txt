@@ -1,0 +1,38 @@
+Base state
+--------------------
+     RYB>R          
+RBW>R          RGY>R
+          RWG>R     
+     OBY>O          
+OWB>O          OYG>O
+          OGW>O     
+--------------------
+Permuted states
+--------------------
+R+
+--------------------
+     RGY>R          
+RYB>R          RWG>R
+          RBW>R     
+     OBY>O          
+OWB>O          OYG>O
+          OGW>O     
+--------------------
+W+
+--------------------
+     RYB>R          
+RWG>B          RGY>R
+          OGW>G     
+     OBY>O          
+RBW>B          OYG>O
+          OWB>G     
+--------------------
+G+
+--------------------
+     RYB>R          
+RBW>R          OYG>Y
+          RGY>W     
+     OBY>O          
+OWB>O          OGW>Y
+          RWG>W     
+--------------------

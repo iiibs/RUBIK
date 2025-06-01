@@ -1,0 +1,48 @@
+ The program gets a description of the puzzle and a task to solve.
+ The desription is in a text file and it is mimicing the sight of the puzzle layer by layer.
+ It also contains those pieces that are not visible, like if it was see through.
+ It is a 2D model of the possibly 3D puzzle.
+ New layer means new line.
+ Capital letters mean colors of the Faces, like R for red, G for green, B for blue, and so on.
+ ABC>A notation means Piece with colors A, B and C is seen at a certain Location and its primary color,
+  which is noted first (A) is facing the first of the colors of the Location.
+ Each Location is named after the colors of the Piece that occupies that certain Location
+  when the puzzle is in its base state.
+ One text file describes the base State of the Puzzle, and all possible permuted states.
+ For the Pocket Cube, which is an example of the possible twisty puzzles, there are three basic
+  Permutations: R+, W+, G+, where R, W and G are the Faces of the Permutations (also called rotations or
+  twists), and "+" means the counterclockwise direction, and the angle of rotation is 90 degrees.
+ Any further Permutations can thought as the result of performing a combination of the basic Permutations.
+ In another text file two States are described using the exact same notation as before:
+  the source State (typically a scrambled State) from where the algorithm should start, and the target
+  State where the algorithm should arrive after performing a series of Permutations.
+ The algorithm first should set up the basic structures of the puzzle: Faces, Pieces, Locations.
+  Face - (can be a color) is used both for identifying a Piece and for identifying a Direction.
+  Faces - a set and a vector of the Face structure.
+  Piece - in case of the Pocket Cube a Piece is identified by three Face (the colors that can be seen on it).
+  Pieces - a set and a vector of the Piece structure.
+  Location - there are as many Location as many Piece, but the order of Lcations is fixed.
+  Locations - a set and a vector of the Location structure.
+ Then the algorithm should set up the vector of possible Positions, which will have so many items as
+  the number of Locations multiplied by the number of Directions.
+  Position - a Piece in a certain Location facing a certain Direction.
+ Then using the Locations and the Positions to describe an Element, the algorithm should be able
+  to set up a state, so it should set up:
+  - the base State,
+  - every Permuted State,
+  - the source state of the Task and
+  - target State of the Task.
+ Next the algorithm should create a vector of the Cycle structure for each Permutation.
+  Cycle - the route of an element when performing the same Permutation several times until it returns
+ As a last step the algorithm should make up a series of Permutations that will bring the Puzzle
+  from the given source State to the given target State, and it should return the shortest of them.
+ To find a Solution (series of Permutations that bring the Puzzle from source State to target State)
+  Cycles are the key.
+ When the algorithm finds a Cycle of a certain series of Permutations to be length 2, then it means
+  that the Elements in those two Positions can swap, which is ideal for bringing a Puzzle from
+  the source State to the target State step-by-step.
+ If no Cycle of length 2 can be found, then the algorithm should search for length 3 Cycles.
+ Using length 3 Cycles it is still relatively easy to perform a Source to Target transformation.
+ If the algorithm cannot find any length 2 or length 3 Cycles by combining the basic Permutations
+  up to a certain level (like spending 1 hour trying), then it should stop and print out that
+  is cannot solve the problem.
