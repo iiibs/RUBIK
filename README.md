@@ -7,3 +7,5 @@
  Then it will try to find basic solutions for the given source state and return the shortest.
  
  The project is not yet complete, it is still test phase for the basic Rubik puzzle, called Pocket Cube.
+
+ The basic structures and a random walk in the puzzle domain already works.
