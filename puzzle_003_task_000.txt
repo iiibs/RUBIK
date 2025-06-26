@@ -1,11 +1,11 @@
 Source state
 --------------------
-     RYB>R          
-RGY>W          RBW>Y
-          OGW>W     
+     RBW>R          
+RWG>R          RYB>R
+          RGY>R     
      OBY>O          
 OWB>O          OYG>O
-          RWG>G     
+          OGW>O     
 --------------------
 Target state
 --------------------
