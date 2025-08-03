@@ -24,13 +24,23 @@
 #include <set>
  using std::set;
 #include <ctime>
- using::time;
+ using std::time;
+#include <cmath>
+ using std::sqrt;
+#include <algorithm>
+ using std::min;
+#include <random>
+ using std::mt19937;
+ using std::random_device;
+ using std::uniform_int_distribution;
 #include "nlohmann/json.hpp"
  using json=nlohmann::json;
 #endif
 
+#if true
 #include "config.cpp"
 #include "..\FSM\Fsm.hpp"
+#endif
 
 // Global variables.
 json settings;
@@ -236,6 +246,7 @@ struct Element
  size_t id;
  size_t piece_id;
  size_t rotated;
+ bool is_in_solved_position(const Element&) const;
  //size_t position_id;
  //size_t location_id;
  //Position position;
@@ -277,13 +288,18 @@ struct Cycle
  vector<Move> moves;
 };
 // Permutation - has a name and a description how it moves Elements of a State to another State
+using Moves=vector<Move>;
+using Cycles=vector<Cycle>;
 struct Permutation
 {
+ size_t id;
  string name;
- vector<Place> places;
- vector<Move> moves;
- vector<Cycle> cycles;
+ //vector<Place> places;
+ size_t loopsize;
+ Moves moves;
+ Cycles cycles;
 };
+using Sequence=vector<size_t>;
 // Puzzle - all components including Faces, Pieces, Locations, Positions, Elements, States, Moves, Permutations
 struct Puzzle
 {
@@ -299,7 +315,10 @@ struct Puzzle
  vector<Position> positions;
  State target_state;
  State current_state;
+ Sequence scramble;
+ Sequence solution;
  vector<Permutation> permutations;
+ void setup(json);
  void get_puzzle_strings(const vector<string>&);
  void base_state_str_to_faces_pieces_locations(string);
  void setup_positions();
@@ -307,13 +326,20 @@ struct Puzzle
  void setup_permutations_moves_cycles();
  void get_task_strings(const vector<string>&);
  bool is_solved();
- void apply_permutation(const Permutation&);
+ void apply_permutation(size_t);
+ Element apply_permutation_to_element(Permutation,Element);
  size_t get_direction_of_face(Face);
  size_t get_piece_firstface_id(Piece);
  void setup_target_state();
  void setup_task(string);
  void set_source_state_str_and_target_state_str(const vector<string>&);
- size_t get_rotation(Piece piece,Location location,char);
+ size_t get_rotation(Piece,Location,char);
+ float distance(int,int);
+ void random_scramble(int,mt19937);
+ bool compare_element_positions(Position,Position);
+ bool compare_puzzle_states(State,State);
+ Sequence element_shortest_solution(size_t);
+ Sequence element_try_length(size_t,size_t);
 };
 
 //using t_index=size_t;
@@ -339,7 +365,18 @@ unsigned int task_id;
 // which is not available at the time of their declaration.
 // That's why they are defined here.
 
+ #pragma region Element delayed functions
+ bool Element::is_in_solved_position(const Element& solved) const
+ {
+  return piece_id == solved.piece_id && rotated == solved.rotated;
+ }
+
  #pragma region Puzzle delayed functions
+ void Puzzle::setup(json settings)
+ {
+  id=settings["puzzle_id"];
+  name=settings["puzzles"][puzzle->id]["name"];
+ }
  void Puzzle::get_puzzle_strings(const vector<string>& lines)
  {
   bool b_processing=false;
@@ -407,6 +444,7 @@ unsigned int task_id;
   base_state.str=str_base_state;
   if(settings["detailed"])
    cout<<"Base state: "<<str_base_state<<endl;
+  permuted_states.clear();
   for(int i_permutation=0;i_permutation<n_permutations;i_permutation++)
   {
    string str_permuted_state="";
@@ -463,7 +501,7 @@ unsigned int task_id;
   vector<Element> elements;
   Piece piece;
   Location location;
-  Position position;
+  //Position position;
   size_t offset;
   for(size_t i_step=0;i_step<fsm.steps.size();i_step++)
   {
@@ -596,10 +634,19 @@ unsigned int task_id;
  }
  void Puzzle::setup_permutations_moves_cycles()
  {
+  permutations.clear();
+  Permutation noop_permutation;
+  noop_permutation.id=0;
+  noop_permutation.name="()";
+  noop_permutation.loopsize=0;
+  noop_permutation.moves.clear();
+  noop_permutation.cycles.clear();
+  permutations.push_back(noop_permutation);
   for(size_t i_permutation=0;i_permutation<permuted_states.size();++i_permutation)
   {
    permuted_states[i_permutation].elements=setup_elements(permuted_states[i_permutation].str);
    Permutation permutation;
+   permutation.id=i_permutation+1;
    permutation.name=permuted_states[i_permutation].name;
    cout<<permutation.name<<endl;
    permutations.push_back(permutation);
@@ -654,39 +701,43 @@ unsigned int task_id;
      move.location_after=permuted_element.id;
      //move.rotation=permuted_rotated-base_rotated;
      move.rotation=(permuted_rotated-base_rotated+n_directions)%n_directions;
-     permutations[i_permutation].moves.push_back(move);
+     permutations[permutation.id].moves.push_back(move);
      cout<<" piece "<<permuted_piece_id;
      cout<<" moved to "<<permuted_element.id<<",";
      cout<<" while rotated "<<move.rotation;
      cout<<endl;
     }
+    cout<<endl;
    }
    // Cycles
    map<size_t,Move> move_map; // from -> to
-   for (const Move& move : permutations[i_permutation].moves)
+   for(const Move& move:permutations[permutation.id].moves)
    {
     move_map[move.location_before]=move;
    }
    set<size_t> visited;
-   for (const auto& [start_id, move] : move_map)
+   for(const auto& [start_id, move]:move_map)
    {
-    if (visited.count(start_id)) continue;
+    if(visited.count(start_id))
+     continue;
     Cycle cycle;
-    size_t current = start_id;
-    while (!visited.count(current))
+    size_t current=start_id;
+    while(!visited.count(current))
     {
      visited.insert(current);
-     const Move& m = move_map[current];
-     cycle.moves.push_back(m);
-     current = m.location_after;
+     const Move& move=move_map[current];
+     cycle.moves.push_back(move);
+     current=move.location_after;
     }
-    if (cycle.moves.size() > 1)
+    if(cycle.moves.size()>1)
     {
-     permutations[i_permutation].cycles.push_back(cycle);
-     cout << " Cycle: ";
-     for (const Move& m : cycle.moves)
-      cout << m.location_before << " -> ";
-     cout << cycle.moves.back().location_after << endl;
+     permutations[permutation.id].loopsize=cycle.moves.size();
+     cout<<" Loopsize: "<<permutations[permutation.id].loopsize<<endl;
+     permutations[permutation.id].cycles.push_back(cycle);
+     cout<<" Cycle: ";
+     for(const Move& move:cycle.moves)
+      cout<<move.location_before<<" -> ";
+     cout<<cycle.moves.back().location_after<< endl;
     }
    }
   }
@@ -744,7 +795,7 @@ unsigned int task_id;
   }
   source_state.str=str_source_state;
   //if(settings["detailed"])
-   cout<<"Source state: "<<source_state.str<<endl;
+   cout<<"Source state:\n"<<source_state.str<<endl;
   string str_target_state="";
   size_t offset_target_state=
    +1 //the "Source state" row
@@ -765,7 +816,36 @@ unsigned int task_id;
   target_state.name=str_target_name;
   target_state.str=str_target_state;
   //if(settings["detailed"])
-   cout<<"Target state: "<<target_state.str<<endl;
+   cout<<"Target state:\n"<<target_state.str<<endl;
+  string str_scramble;
+  size_t offset_scramble=
+   +1 //the "Source state" row
+   +1 //the opening "------" row
+   +n_rows //number of rows in a state description
+   +1 //the the closing "------" row
+   +1 //the "Target state" row
+   +1 //the opening "------" row
+   +n_rows //number of rows in a state description
+   +1 //the the closing "------" row
+   +1 //the "Sequence" row
+   +1 //the opening "------" row
+  ;
+  str_scramble+=lines[offset_scramble];
+  cout<<"str_scramble:\n"<<str_scramble<<endl;
+  Sequence scramble;
+  size_t n_permutations=(str_scramble.length()+1)/3;
+  for(size_t i_permutation=0;i_permutation<n_permutations;i_permutation++)
+  {
+   string str_permutation_name=str_scramble.substr(i_permutation*3,2);
+   cout<<i_permutation<<". "<<str_permutation_name<<endl;
+   for(const auto &permutation:puzzle->permutations)
+   {
+    if(permutation.name==str_permutation_name)
+    {
+     puzzle->scramble.push_back(permutation.id);
+    }
+   }
+  }
  }
  bool Puzzle::is_solved()
  {
@@ -778,17 +858,34 @@ unsigned int task_id;
   }
   return true;
  }
- void Puzzle::apply_permutation(const Permutation& permutation)
+ Element Puzzle::apply_permutation_to_element(Permutation permutation,Element element_before_permutation)
  {
-  State new_state = current_state;
-  for (const auto& move : permutation.moves)
+  Element element_after_permutation;
+  element_after_permutation=element_before_permutation;
+  for(const auto& move:puzzle->permutations[permutation.id].moves)
   {
-   const Element& from_element = current_state.elements[move.location_before-1];
-   Element moved = from_element;
-   moved.rotated = (from_element.rotated + move.rotation) % n_directions;
-   new_state.elements[move.location_after-1] = moved;
+   cout<<"element: "<<element_before_permutation.id<<endl;
+   cout<<"move.location_before: "<<move.location_before<<endl;
+   cout<<" :"<<puzzle->current_state.elements[element_before_permutation.id].piece_id<<endl;
+   cout<<endl;
   }
-  current_state = new_state;
+  return element_after_permutation;
+ }
+ void Puzzle::apply_permutation(size_t permutation_id)
+ {
+  if(permutation_id!=0)
+  {
+   State new_state=current_state;
+   for(const auto& move:puzzle->permutations[permutation_id].moves)
+   {
+    const Element& from_element=current_state.elements[move.location_before-1];
+    Element moved=from_element;
+    moved.rotated=(from_element.rotated+move.rotation)%n_directions;
+    new_state.elements[move.location_after-1]=moved;
+   }
+   current_state=new_state;
+   cout<<endl;
+  }
  }
  /*
  void Puzzle::apply_permutation_debug(Permutation permutation)
@@ -1034,6 +1131,316 @@ unsigned int task_id;
     break;
   }
   return rotation;
+ }
+ float Puzzle::distance(int n_trials,int max_steps)
+ {
+  float sum_of_squares = 0.0f;
+  int count=0;
+  for(int i_element=0;i_element<source_state.elements.size();++i_element)
+  {
+   int min_distance=max_steps;
+   for(int i_trial=0;i_trial<n_trials;++i_trial)
+   {
+    State saved_state=current_state;
+    int steps=0;
+    while(true)
+    {
+     if(current_state.elements[i_element].is_in_solved_position(target_state.elements[i_element]))
+     {
+      int min_distance_new=min(min_distance,steps);
+      if(min_distance_new<min_distance)
+      {
+       min_distance=min_distance_new;
+       if(false)
+        cout<<"current min_distance= "<<min_distance<<endl;
+       break;
+      }
+     }
+     if (steps >= max_steps)
+      break;
+     // Apply a random permutation
+     size_t permutation_id=permutations[rand()%permutations.size()].id;
+     apply_permutation(permutation_id);
+     ++steps;
+    }
+    current_state=saved_state;
+   }
+   if(false)
+    cout<<"final min_distance= "<<min_distance<<endl;
+   sum_of_squares += min_distance * min_distance;
+   ++count;
+  }
+  float distance = sqrt(sum_of_squares / count);
+  return distance;
+ }
+ void Puzzle::random_scramble(int n_steps,mt19937 rng)
+ {
+  uniform_int_distribution<int> dist(0,static_cast<int>(puzzle->permutations.size()-1));
+  for(int i_step=0;i_step<n_steps;i_step++)
+  {
+   cout<<"Step "<<i_step;
+   int rand_index=dist(rng);
+   cout<<" rand_index: "<<rand_index<<endl;
+   size_t permutation_id;
+   permutation_id=puzzle->permutations[rand_index].id;
+   cout<<" Permutation "<<puzzle->permutations[permutation_id].name;
+   cout<<endl;
+   apply_permutation(permutation_id);
+  }
+ }
+ bool Puzzle::compare_puzzle_states(State before_state,State after_state)
+ {
+  for(size_t i_element=0;i_element<before_state.elements.size();++i_element)
+  {
+   const Element& a_element=before_state.elements[i_element];
+   const Element& b_element=after_state.elements[i_element];
+   if(a_element.piece_id!=b_element.piece_id||a_element.rotated!=b_element.rotated)
+    return false;
+  }
+  return true;
+ }
+ /*
+ Sequence Puzzle::element_shortest_solution_goto(size_t element_id)
+ {
+  if(settings["detailed"])
+  {
+   cout<<"piece_id: "<<puzzle->source_state.elements[element_id-1].piece_id<<endl;
+   cout<<"rotated="<<puzzle->source_state.elements[element_id-1].rotated<<endl;
+  }
+  Sequence sequence;
+  sequence.clear();
+  enum ProcessDirection{Horizontal,Vertical};
+  ProcessDirection process_direction=Vertical;
+  size_t i_vertical=0;
+  size_t i_horizontal=0;
+  size_t i_permutation=0;
+  puzzle->current_state=puzzle->source_state;
+  while(true)
+  {
+   if(settings["detailed"])
+   {
+    cout<<"process_direction "<<process_direction<<endl;
+    cout<<"i_vertical "<<i_vertical<<endl;
+    cout<<"i_horizontal "<<i_horizontal<<endl;
+    cout<<"i_permutation "<<i_permutation<<endl;
+   }
+   // Check if it is solved already.
+   Element current_element;
+   current_element=puzzle->current_state.elements[element_id-1];
+   Element target_element;
+   target_element=puzzle->target_state.elements[element_id-1];
+   if(current_element.piece_id==target_element.piece_id&&
+      current_element.rotated==target_element.rotated)
+   {
+    // If yes, then the current sequence is the shortest solution.
+    break;
+   }
+   // Is the process direction horizontal.
+   if(process_direction==Horizontal)
+   {
+    if(i_horizontal<i_vertical)
+    {
+     if(i_permutation<puzzle->permutations.size())
+     {
+      sequence[i_horizontal]=puzzle->permutations[i_permutation].id;
+      i_permutation++;
+      goto apply_sequence;
+     }
+     else
+     {
+      i_horizontal++;
+      i_permutation=1;
+      continue;
+     }
+    }
+    else
+    {
+     process_direction=Vertical;
+     continue;
+    }
+   }
+   if(process_direction==Vertical)
+   {
+    // If the process direction is vertical movement on the tree, then
+    // increase the length of the shortest solution.
+    i_vertical++;
+    sequence.push_back(0);
+    puzzle->current_state=puzzle->source_state;
+    i_horizontal=0;
+    i_permutation=0;
+    process_direction=Horizontal;
+    continue;
+   }
+   apply_sequence:
+   // Apply the permutations that are in the sequence.
+   for(size_t i_sequence=0;i_sequence<sequence.size();++i_sequence)
+   {
+    if(settings["detailed"])
+    {
+     cout<<"before"<<endl;
+     puzzle->current_state.print_by_id();
+    }
+    puzzle->apply_permutation(sequence[i_sequence]);
+    if(settings["detailed"])
+    {
+     cout<<"after"<<endl;
+     puzzle->current_state.print_by_id();
+     cout<<"----------"<<endl;
+    }
+   }
+   // Print current sequence.
+   cout<<"sequence:"<<endl;
+   for(size_t i_sequence=0;i_sequence<sequence.size();++i_sequence)
+   {
+    cout<<" "<<puzzle->permutations[sequence[i_sequence]].name;
+   }
+   cout<<endl;
+  }
+  return sequence;
+ }
+ */
+ vector<size_t> Puzzle::element_shortest_solution(size_t element_id)
+ {
+  Sequence sequence;
+  // Reset all current_state elements where they were in source_state.
+  puzzle->current_state.str=puzzle->source_state.str;
+  for(size_t i_element=0;i_element<puzzle->current_state.elements.size();i_element++)
+  {
+   puzzle->current_state.elements[i_element]=puzzle->source_state.elements[i_element];
+  }
+  Element source_element;
+  source_element=puzzle->source_state.elements[element_id-1];
+  const Piece* piece;
+  piece=puzzle->pieces.vector[source_element.piece_id-1];
+  size_t piece_id;
+  piece_id=piece->id;
+  size_t rotated;
+  rotated=source_element.rotated;
+  cout<<"source state element "<<source_element.id<<" is actually piece "<<piece_id<<" rotated "<<rotated<<endl;
+  // Compare source_element with target_element by piece and rotate before any permutation tried
+  Element target_element;
+  target_element=puzzle->target_state.elements[element_id-1];
+  if(target_element.piece_id==piece_id)
+  {
+   if(target_element.rotated==rotated)
+   {
+    sequence.push_back(0);
+    return sequence;
+   }
+  }
+  // Try sequences of permutations
+  size_t try_length=1;
+  while(true)
+  {
+   sequence=puzzle->element_try_length(element_id,try_length);
+   if(sequence.size()==try_length)
+    break;
+   try_length++;
+  }
+  return sequence;
+ }
+ vector<size_t> Puzzle::element_try_length(size_t element_id,size_t length) // recursive
+ {
+  vector<size_t> best_solution;
+
+  // internal recursive function
+  function<bool(vector<size_t>&, size_t)> try_sequences;
+  try_sequences = [&](vector<size_t>& current_sequence,size_t depth_limit) -> bool
+  {
+   if(current_sequence.size() > depth_limit) return false;
+
+   if(current_sequence.size()==length)
+   {
+
+    // apply the current sequence for the source state
+    puzzle->current_state = puzzle->source_state;
+    for(auto& permutation_id:current_sequence)
+    {
+     //if(settings["detailed"])
+     {
+      cout<<"current state before permutation "<<puzzle->permutations[permutation_id].name<<endl;
+      puzzle->current_state.print_by_id();
+     }
+     puzzle->apply_permutation(permutation_id);
+     //if(settings["detailed"])
+     {
+      cout<<"current state after permutation "<<puzzle->permutations[permutation_id].name<<endl;
+      puzzle->current_state.print_by_id();
+      cout<<"----------"<<endl;
+     }
+    }
+
+    if(settings["detailed"])
+    {
+     cout<<"try sequence:"<<endl;
+     for(auto permutation_id:current_sequence)
+     {
+      cout<<" "<<puzzle->permutations[permutation_id].name;
+     }
+     cout<<endl;
+    }
+
+    const Element& source=puzzle->source_state.elements[element_id-1];
+    const Element& current=puzzle->current_state.elements[element_id-1];
+    const Element& target=puzzle->target_state.elements[element_id-1];
+
+    if(settings["detailed"])
+    {
+     cout<<"current element"<<endl;
+     cout<<" piece_id: "<<current.piece_id<<endl;
+     cout<<" rotated="<<current.rotated<<endl;
+     cout<<"target element"<<endl;
+     cout<<" piece_id: "<<target.piece_id<<endl;
+     cout<<" target="<<target.rotated<<endl;
+    }
+
+    // check if the source piece is currently in the target state or not
+    size_t piece_id=source.piece_id;
+    for(size_t i_element=0;i_element<puzzle->base_state.elements.size();++i_element)
+    {
+     // check if the element has the piece
+     if(puzzle->target_state.elements[i_element].piece_id==piece_id)
+     {
+      // we found the piece
+      // now we check if it is currently in the position described by the target
+      const Element& current_element=puzzle->current_state.elements[i_element];
+      const Element& target_element=puzzle->target_state.elements[i_element];
+      if(current_element.piece_id==target_element.piece_id &&
+         current_element.rotated==target_element.rotated)
+      {
+       best_solution = current_sequence;  // solution found
+       return true;
+      }
+     }
+    }
+
+   }
+
+   // otherwise increase the sequence, if depth limit is not reached
+   for (size_t permutation_id=0;permutation_id<puzzle->permutations.size();++permutation_id)
+   {
+    current_sequence.push_back(permutation_id);
+    if (try_sequences(current_sequence, depth_limit))
+    {
+     return true; // solution found, quit
+    }
+    current_sequence.pop_back(); // backtrack
+   }
+
+   return false;
+  };
+
+  // In depth search: starting from 1 and increasing
+  for (size_t depth = 1; depth <= length; ++depth)
+  {
+   vector<size_t> sequence;
+   if (try_sequences(sequence, depth))
+   {
+    break;
+   }
+  }
+
+  return best_solution;
  }
  #pragma endregion
 
@@ -1300,15 +1707,37 @@ vector<string> read_puzzle_lines()
 }
 vector<string> read_task_lines()
 {
+ size_t puzzle_id;
+ puzzle_id=settings["puzzle_id"];
+ cout<<"puzzle_id: "<<puzzle_id<<endl;
+ size_t task_id;
+ task_id=settings["task_id"];
+ cout<<"task_id: "<<task_id<<endl;
  string str_textfile_path;
  ostringstream oss;
  oss.str("");
  oss.clear();
- oss<<"D:/BAREK/Rubik/puzzle_"<<setw(3)<<setfill('0')<<puzzle->id<<"_task_"<<setw(3)<<setfill('0')<<task_id<<".txt";
+ //oss<<"D:/BAREK/Rubik/puzzle_"<<setw(3)<<setfill('0')<<puzzle->id<<"_task_"<<setw(3)<<setfill('0')<<task_id<<".txt";
+ oss<<"puzzle_"<<setw(3)<<setfill('0')<<puzzle_id<<"_task_"<<setw(3)<<setfill('0')<<task_id<<".txt";
  str_textfile_path=oss.str();
  vector<string> lines;
  lines=read_textfile_lines(str_textfile_path);
  return lines;
+}
+void save_to_binary(const std::vector<size_t>& sequence, const std::string& filename) {
+    std::ofstream file(filename, std::ios::binary);
+    file.write(reinterpret_cast<const char*>(sequence.data()), sequence.size() * sizeof(size_t));
+    file.close();
+}
+vector<size_t> load_from_binary(const std::string& filename)
+{
+ ifstream file(filename, std::ios::binary);
+ file.seekg(0, std::ios::end);
+ size_t num_elements = file.tellg() / sizeof(size_t);
+ file.seekg(0, std::ios::beg);
+ vector<size_t> sequence(num_elements);
+ file.read(reinterpret_cast<char*>(sequence.data()), num_elements * sizeof(size_t));
+ return sequence;
 }
 
 void advanced_setup()
@@ -1485,36 +1914,171 @@ int get_period(const t_permutation& permutation)
 }
 */
 
-/*
-t_state random_scramble(t_state current_state,int n_steps)
-{
- for(int i_step=0;i_step<n_steps;i_step++)
- {
-  cout<<"Step "<<i_step<<endl;
-  int rand_index=rand()%permutations.size();
-  current_state=apply_permutation(current_state,permutations[rand_index]);
-  i_step++;
- }
- return current_state;
-}
-*/
-
 void random_solve()
 {
  advanced_setup();
  puzzle->current_state=puzzle->source_state;
- //srand(37); // R+ <- ez a megoldas
- srand(time(nullptr));
+ //mt19937 rng(1); // repeatable random - for debugging
+ mt19937 rng(std::random_device{}());
+ uniform_int_distribution<int> dist(1,static_cast<int>(puzzle->permutations.size()));
  int i_step=0;
+ vector<size_t>sequence;
  while(puzzle->is_solved()!=true)
  {
-  cout<<"Step "<<i_step<<endl;
-  int rand_index=rand()%puzzle->permutations.size();
-  Permutation permutation=puzzle->permutations[rand_index];
-  cout<<permutation.name<<endl;
-  puzzle->apply_permutation(permutation);
-  puzzle->current_state.print_by_id();
+  if(false)
+   cout<<"Step "<<i_step<<endl;
+  int permutation_id=dist(rng);
+  if(false)
+   cout<<"rand_id "<<permutation_id<<endl;
+  sequence.push_back(permutation_id);
+  if(false)
+   cout<<puzzle->permutations[permutation_id].name<<endl;
+  puzzle->apply_permutation(permutation_id);
+  if(false)
+   puzzle->current_state.print_by_id();
+  float distance=puzzle->distance(100,25);
+  if(false)
+   cout<<"distance= "<<distance<<endl;
+  //if(distance<5.0)
+  if(distance<0.5)
+  {
+   cout<<"Step "<<i_step<<endl;
+   cout<<puzzle->permutations[permutation_id].name<<endl;
+   puzzle->current_state.print_by_id();
+   cout<<"distance= "<<distance<<endl;
+   save_to_binary(sequence,"random.bin");
+   break;
+  }
   i_step++;
+ }
+}
+
+void test_distance()
+{
+ //mt19937 rng(std::random_device{}());
+ mt19937 rng(1); // repeatable random - for debugging
+ //cout<<"random: "<<rng<<endl;
+ puzzle->random_scramble(20,rng);
+ puzzle->current_state.print_by_id();
+ float distance=puzzle->distance(100,25);
+ cout<<"distance= "<<distance<<endl;
+}
+
+void analyze_loops_on_cubie(size_t element_index) {
+ /*
+    vector<size_t> random_sequence = load_from_binary("random.bin");
+
+    Element start = source_state.elements[element_index];
+    Element current = start;
+
+    vector<size_t> current_subsequence;
+    vector<vector<size_t>> identity_loops;
+
+    for (size_t move_id : random_sequence) {
+        const Permutation& move = puzzle->permutations[move_id - 1];
+
+        // Apply only on the selected element
+        current = apply_permutation_to_element(current, move); 
+        current_subsequence.push_back(move_id);
+
+        if (current == start) {
+            identity_loops.push_back(current_subsequence);
+            current_subsequence.clear();
+            current = start; // reset for the next search
+        }
+    }
+
+    // optional: print or analyze identity_loops
+    */
+}
+
+void repeated_permutation_removal(string str_input,string str_output)
+{
+ vector<size_t> input_sequence;
+ vector<size_t> output_sequence;
+ input_sequence=load_from_binary(str_input);
+ size_t i_sequence=0;
+ while(i_sequence<input_sequence.size())
+ {
+  size_t current_id=input_sequence[i_sequence];
+  if(false)
+   cout<<"name: "<<puzzle->permutations[input_sequence[i_sequence]-1].name<<endl;
+  //cout<<" loopsize="<<puzzle->permutations[random_sequence[i_sequence]-1].loopsize<<endl;
+  size_t count=1;
+  // Count how many times the same permutation repeats
+  while(i_sequence+count<input_sequence.size()&&input_sequence[i_sequence+count]==current_id)
+  {
+   ++count;
+   if(false)
+    cout<<"name: "<<puzzle->permutations[input_sequence[i_sequence]-1].name<<" count "<<count<<endl;
+  }
+  size_t order=puzzle->permutations[current_id-1].loopsize;
+  size_t kept=count%order;
+  // Keep only the minimal equivalent
+  for(size_t j=0;j<kept;++j)
+  {
+   output_sequence.push_back(current_id);
+  }
+  i_sequence+=count;
+ }
+ save_to_binary(output_sequence,str_output);
+}
+void state_loop_removal(string str_input,string str_output)
+{
+ vector<size_t> input_sequence;
+ vector<size_t> output_sequence;
+ input_sequence=load_from_binary(str_input);
+
+ State reference_state=puzzle->source_state;
+ size_t i_start=0;
+ for(size_t i_sequence=0;i_sequence<input_sequence.size();++i_sequence)
+ {
+  size_t permutation_id=input_sequence[i_sequence];
+  puzzle->apply_permutation(puzzle->permutations[permutation_id].id);
+  if(false)
+  {
+   cout<<"---"<<endl;
+   puzzle->current_state.print_by_id();
+   cout<<endl;
+   reference_state.print_by_id();
+   cout<<"---"<<endl;
+  }
+  if(puzzle->compare_puzzle_states(reference_state,puzzle->current_state))
+  {
+   cout<<"i_sequence="<<i_sequence<<endl;
+   i_start=i_sequence;
+   break;
+  }
+ }
+ for(size_t i_sequence=i_start;i_sequence<input_sequence.size();++i_sequence)
+ {
+  output_sequence.push_back(input_sequence[i_sequence]);
+ }
+ save_to_binary(output_sequence,"nostateloop.bin");
+}
+
+void analyze_solution()
+{
+ // Length reducing algorithms
+ repeated_permutation_removal("random.bin","norepeat.bin");
+ state_loop_removal("norepeat.bin","nostateloop.bin");
+}
+
+void build_solution()
+{
+ vector<size_t> sequence;
+ for(size_t i_element=0;i_element<puzzle->base_state.elements.size();++i_element)
+ {
+  size_t element_id=i_element+1;
+  sequence=puzzle->element_shortest_solution(element_id);
+  cout<<"element id "<<element_id<<endl;
+  cout<<"element faces "<<puzzle->pieces.vector[puzzle->source_state.elements[i_element].piece_id-1]->str_faces<<endl;
+  cout<<"element solution"<<endl;
+  for(size_t i_sequence=0;i_sequence<sequence.size();i_sequence++)
+  {
+   cout<<i_sequence+1<<". "<<puzzle->permutations[sequence[i_sequence]].name<<endl;
+  }
+  cout<<"========"<<endl;
  }
 }
 
@@ -1550,12 +2114,18 @@ void main_menu()
   {1,"Basic Setup"},
   {2,"Advanced Setup"},
   {3,"Random Solve"},
+  {4,"Test - distance"},
+  {5,"Analyze Solution"},
+  {6,"Build Solution"},
  };
  map<int, std::function<void()>> menu_actions=
  {
   {1,basic_setup},
   {2,advanced_setup},
   {3,random_solve},
+  {4,test_distance},
+  {5,analyze_solution},
+  {6,build_solution},
  };
  while(true)
  {
@@ -1584,10 +2154,12 @@ void main_menu()
 // Main.
 int main()
 {
- puzzle=new Puzzle;
  settings=load_settings();
- puzzle->id=settings["puzzle_id"];
- puzzle->name=settings["puzzles"][puzzle->id]["name"];
+ puzzle=new Puzzle;
+ puzzle->setup(settings);
+ advanced_setup();
+ puzzle->current_state=puzzle->base_state;
+ puzzle->current_state.print_by_id();
  main_menu();
 
  return 0;

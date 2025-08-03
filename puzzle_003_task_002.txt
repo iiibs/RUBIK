@@ -1,0 +1,21 @@
+Source state
+--------------------
+     RBW>R          
+OGW>B          RYB>R
+          RWG>G     
+     OBY>O          
+OWB>O          RGY>Y
+          OYG>W     
+--------------------
+Target state
+--------------------
+     RYB>R          
+RBW>R          RGY>R
+          RWG>R     
+     OBY>O          
+OWB>O          OYG>O
+          OGW>O     
+--------------------
+Scramble
+--------------------
+G+ G+ G+ R+ R+ R+
